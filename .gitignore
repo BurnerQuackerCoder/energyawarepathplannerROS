@@ -1,0 +1,8 @@
+cat <<EOL > .gitignore
+build/
+devel/
+*.swp
+*.pyc
+*.log
+*.cache
+EOL
