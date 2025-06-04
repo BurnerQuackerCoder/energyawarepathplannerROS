@@ -84,6 +84,6 @@ install(DIRECTORY include/${PROJECT_NAME}/
   DESTINATION ${CATKIN_PACKAGE_INCLUDE_DESTINATION}
 )
 
-install(FILES bgp_plugin.xml
+install(FILES bgp_plugin_jp.xml
   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 )

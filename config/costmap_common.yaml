@@ -4,7 +4,7 @@ robot_base_frame: base_link
 footprint: [[0.14, 0.14], [0.14, -0.14], [-0.14, -0.14], [-0.14, 0.14]]
 rolling_window: true
 
-inflation_radius: 0.5
+inflation_radius: 0.2
 cost_scaling_factor: 4.0
 
 track_unknown_space: true

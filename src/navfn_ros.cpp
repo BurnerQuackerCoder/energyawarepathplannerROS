@@ -1,44 +1,13 @@
 /*********************************************************************
-*
-* Software License Agreement (BSD License)
-*
-*  Copyright (c) 2008, Willow Garage, Inc.
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the Willow Garage nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*
-* Author: Eitan Marder-Eppstein
+* Author: Jay Puppala
 *********************************************************************/
 #include <enawpl/navfn_ros.h>
 #include <pluginlib/class_list_macros.hpp>
 #include <costmap_2d/cost_values.h>
 #include <costmap_2d/costmap_2d.h>
 #include <sensor_msgs/point_cloud2_iterator.h>
+//Added
+#include <enawpl/navfn.h> 
 
 //register this planner as a BaseGlobalPlanner plugin
 PLUGINLIB_EXPORT_CLASS(enawpl::NavfnROS, nav_core::BaseGlobalPlanner)
@@ -46,7 +15,14 @@ PLUGINLIB_EXPORT_CLASS(enawpl::NavfnROS, nav_core::BaseGlobalPlanner)
 namespace enawpl {
 
   NavfnROS::NavfnROS() 
-    : costmap_(NULL),  planner_(), initialized_(false), allow_unknown_(true) {}
+    : costmap_(NULL),  planner_(), initialized_(false), allow_unknown_(true),
+      // ADDED: Initialize new members
+      current_battery_percent_(100.0), // Assume full battery initially
+      battery_data_received_(false),
+      critical_battery_threshold_(20.0), // Default, will be overridden by param
+      base_energy_penalty_per_unit_(10.0),   // Default
+      critical_battery_penalty_multiplier_(2.0) {} // Default
+      // END ADDED 
 
   NavfnROS::NavfnROS(std::string name, costmap_2d::Costmap2DROS* costmap_ros)
     : costmap_(NULL),  planner_(), initialized_(false), allow_unknown_(true) {
@@ -67,6 +43,7 @@ namespace enawpl {
       planner_ = boost::shared_ptr<NavFn>(new NavFn(costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY()));
 
       ros::NodeHandle private_nh("~/" + name);
+      ros::NodeHandle nh; // For global topics like /battery
 
       plan_pub_ = private_nh.advertise<nav_msgs::Path>("plan", 1);
 
@@ -83,6 +60,11 @@ namespace enawpl {
 
       make_plan_srv_ =  private_nh.advertiseService("make_plan", &NavfnROS::makePlanService, this);
 
+      // ADDED: Load energy parameters and set up battery subscriber
+      loadEnergyParams(private_nh);
+      battery_sub_ = nh.subscribe<std_msgs::Float32>("/battery", 1, &NavfnROS::batteryCallback, this);
+      // END ADDED
+
       initialized_ = true;
     }
     else
@@ -91,6 +73,7 @@ namespace enawpl {
 
   void NavfnROS::initialize(std::string name, costmap_2d::Costmap2DROS* costmap_ros){
     initialize(name, costmap_ros->getCostmap(), costmap_ros->getGlobalFrameID());
+    
   }
 
   bool NavfnROS::validPointPotential(const geometry_msgs::Point& world_point){
@@ -233,9 +216,157 @@ namespace enawpl {
     //clear the starting cell within the costmap because we know it can't be an obstacle
     clearRobotCell(start, mx, my);
 
+    // JP_MODIFIED: Prepare energy-aware costmap
+    unsigned int size_x = costmap_->getSizeInCellsX();
+    unsigned int size_y = costmap_->getSizeInCellsY();
+    unsigned int map_size = size_x * size_y;
+    ROS_INFO_THROTTLE(1.0, "NavfnROS: size_x (%u) size_y (%u)",
+                      size_x, size_y);
+
+
+
+    unsigned char* original_ros_costmap_chars = costmap_->getCharMap();
+    unsigned char* energy_aware_cost_array = new unsigned char[map_size];
+
+
+
+    // For simplicity in this PoC, if battery data hasn't been received yet, plan with default high battery assumption
+    float actual_battery_for_planning = battery_data_received_ ? current_battery_percent_ : 100.0;
+    if (!battery_data_received_) {
+        ROS_WARN_ONCE("NavfnROS: Battery data not yet received, planning with assumed full battery.");
+    }
+
+
+    double current_penalty_multiplier = 1.0;
+    if (actual_battery_for_planning < critical_battery_threshold_) {
+        current_penalty_multiplier = critical_battery_penalty_multiplier_;
+        ROS_INFO_THROTTLE(1.0, "NavfnROS: Battery (%.1f%%) is below critical (%.1f%%). Applying penalty multiplier: %.2f",
+                      actual_battery_for_planning, critical_battery_threshold_, current_penalty_multiplier);
+    } else {
+        ROS_INFO_THROTTLE(1.0, "NavfnROS: Battery (%.1f%%) is above critical (%.1f%%). Normal penalties apply.",
+                      actual_battery_for_planning, critical_battery_threshold_);
+    }
+
+    ROS_INFO_ONCE("NavfnROS: Debug - Checking for cells with specific cost ranges. This might be verbose.");
+
+    // Define expected raw cost ranges for terrains (replace with your educated guesses)
+    //const unsigned char expected_smooth_val_approx = 10; // The value you AIMED for or suspect for smooth
+    // const unsigned char expected_carpet_val_approx = 50; // The value you AIMED for or suspect for carpet
+    // const unsigned char expected_mount_val_approx = 150;
+    // const unsigned char expected_sea_approx = 170;
+    // const unsigned char expected_sand_approx = 250;
+    // const unsigned char value_tolerance = 7; // Print if value is within +/- this tolerance
+
+    for (unsigned int i = 0; i < map_size; ++i) {
+        unsigned char ros_cell_cost = original_ros_costmap_chars[i];
+        unsigned int current_mx = i % size_x;
+        unsigned int current_my = i / size_x;
+        //unsigned char base_navfn_cell_cost = calculateBaseNavfnCost(ros_cell_cost, allow_unknown_);
+        unsigned char final_ros_cost_for_navfn = ros_cell_cost; // Start with the original
+
+        // ADDED: ROS_INFO if cell cost is within an expected range
+        /*if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_smooth_val_approx)) <= value_tolerance) {
+            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'smooth' value of %d)", 
+                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_smooth_val_approx);
+        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_carpet_val_approx)) <= value_tolerance) {
+            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'carpet' value of %d)", 
+                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_carpet_val_approx);
+        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_mount_val_approx)) <= value_tolerance) {
+            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'mount' value of %d)", 
+                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_mount_val_approx);
+        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_sea_approx)) <= value_tolerance) {
+            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'sea' value of %d)", 
+                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_sea_approx);
+        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_sand_approx)) <= value_tolerance) {
+            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'sand' value of %d)", 
+                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_sand_approx);
+        }
+        // END ADDED */
+
+        /*double terrain_energy_factor_for_cell = 1.0; // Default for standard free space or unknown terrain
+        for (const auto& terrain_def : terrain_definitions_) {
+            if (ros_cell_cost == terrain_def.raw_map_value) {
+                terrain_energy_factor_for_cell = terrain_def.energy_usage_factor;
+                break; 
+            }
+        }*/
+
+        // MODIFIED: Determine terrain_energy_factor_for_cell based on zones
+        double terrain_energy_factor_for_cell = 1.0; // Default factor for cells not in any defined zone
+        std::string current_zone_name = "default"; // For logging
+        for (const auto& zone_def : zone_terrain_definitions_) {
+          //ROS_INFO_THROTTLE(1.0,"Inside For, Cell (%u,%u) is in zone (%u,%u), %s with factor %.2f", current_mx, current_my, zone_def.min_mx, zone_def.max_mx ,zone_def.name.c_str(), terrain_energy_factor_for_cell);
+            if (current_mx >= zone_def.min_mx && current_mx <= zone_def.max_mx &&
+                current_my >= zone_def.min_my && current_my <= zone_def.max_my) {
+                terrain_energy_factor_for_cell = zone_def.energy_usage_factor;
+                //ROS_INFO_THROTTLE(5.0,"Cell (%u,%u) is in zone %s with factor %.2f", current_mx, current_my, zone_def.name.c_str(), terrain_energy_factor_for_cell); // Optional debug
+                current_zone_name = zone_def.name;
+                break; // Use the first matching zone. Define more specific zones first in YAML if they overlap.
+            }
+        }
+        // END MODIFIED
+
+        double applied_additional_ros_penalty = 0.0; // To log the actual penalty
+
+        if (ros_cell_cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE) { // e.g. < 253
+            double additional_ros_penalty = (terrain_energy_factor_for_cell - 1.0) * base_energy_penalty_per_unit_ * current_penalty_multiplier;
+
+            if (additional_ros_penalty < 0.0) additional_ros_penalty = 0.0;
+
+            int potentially_modified_ros_cost = static_cast<int>(ros_cell_cost) + static_cast<int>(additional_ros_penalty);
+
+            // Cap the modified cost to ensure it doesn't become an obstacle unintentionally
+            // It should not exceed the value just below inscribed obstacles.
+            if (potentially_modified_ros_cost >= costmap_2d::INSCRIBED_INFLATED_OBSTACLE) {
+                final_ros_cost_for_navfn = costmap_2d::INSCRIBED_INFLATED_OBSTACLE - 1; 
+            } else {
+                final_ros_cost_for_navfn = static_cast<unsigned char>(potentially_modified_ros_cost);
+            }
+      }
+    // else, lethal, inscribed, or unknown costs are passed as is to NavFn::setCostmap
+
+    energy_aware_cost_array[i] = final_ros_cost_for_navfn;
+
+    // Specific logging for your "carpet_main_hall" zone
+    // Replace with your actual zone coordinates for carpet_main_hall if needed for precision
+    // if (current_mx >= 1971 && current_mx <= 2026 && current_my >= 2001 && current_my <= 2014) {
+    //     if (current_zone_name == "carpet_main_hall") { // Double check it was matched as carpet_main_hall
+    //     ROS_INFO("CarpetCellDebug: MX=%u, MY=%u | OrigCost=%d, ZoneName=%s, TerrainFactor=%.2f, AddPenalty=%.1f, FinalROSCostNavFnWillProcess=%d",
+    //              current_mx, current_my, 
+    //              static_cast<int>(ros_cell_cost),
+    //              current_zone_name.c_str(),
+    //              terrain_energy_factor_for_cell,
+    //              applied_additional_ros_penalty,
+    //              static_cast<int>(final_ros_cost_for_navfn));
+    //  } else {
+    //     // This would indicate a cell within carpet_main_hall's coordinates was NOT matched to it by the zone logic
+    //     ROS_WARN("CarpetCoordMismatch: MX=%u, MY=%u | OrigCost=%d, MatchedZone=%s (Expected Carpet!), TerrainFactor=%.2f, AddPenalty=%.1f, FinalROSCostNavFnWillProcess=%d",
+    //              current_mx, current_my,
+    //              static_cast<int>(ros_cell_cost),
+    //              current_zone_name.c_str(),
+    //              terrain_energy_factor_for_cell,
+    //              applied_additional_ros_penalty,
+    //              static_cast<int>(final_ros_cost_for_navfn));
+    //  }
+    // }
+// } // End of for loop
+
+    }
+
+    planner_->setNavArr(size_x, size_y);
+    // Pass our dynamically generated energy-aware cost array
+    planner_->setCostmap(energy_aware_cost_array, true, allow_unknown_); 
+    // END MODIFIED
+    // ADDED: Clean up the dynamically allocated cost array
+    delete[] energy_aware_cost_array;
+    energy_aware_cost_array = nullptr;
+    // END ADDED
+
+
     //make sure to resize the underlying array that Navfn uses
-    planner_->setNavArr(costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
-    planner_->setCostmap(costmap_->getCharMap(), true, allow_unknown_);
+    // JP Below commented
+    //planner_->setNavArr(costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
+    //planner_->setCostmap(costmap_->getCharMap(), true, allow_unknown_);
 
     int map_start[2];
     map_start[0] = mx;
@@ -429,4 +560,175 @@ namespace enawpl {
     publishPlan(plan, 0.0, 1.0, 0.0, 0.0);
     return !plan.empty();
   }
+  // ADDED: Battery callback implementation
+  void NavfnROS::batteryCallback(const std_msgs::Float32::ConstPtr& msg) {
+      current_battery_percent_ = msg->data;
+      if (!battery_data_received_){
+          ROS_INFO("NavfnROS: Received first battery update: %.1f%%", current_battery_percent_);
+          battery_data_received_ = true;
+      }
+  }
+  // END ADDED
+  // ADDED: Parameter loading implementation
+  /*void NavfnROS::loadEnergyParams(ros::NodeHandle& private_nh) {
+      private_nh.param("critical_battery_threshold", critical_battery_threshold_, 20.0);
+      private_nh.param("base_energy_penalty_per_cell", base_energy_penalty_per_unit_, 10.0);
+      private_nh.param("critical_battery_penalty_multiplier", critical_battery_penalty_multiplier_, 2.0);
+
+      ROS_INFO("NavfnROS Energy Params: CriticalBattery=%.1f%%, BasePenalty=%.1f, BoostMultiplier=%.1f",
+              critical_battery_threshold_, base_energy_penalty_per_unit_, critical_battery_penalty_multiplier_);
+
+      XmlRpc::XmlRpcValue terrain_list;
+      if (private_nh.getParam("terrain_definitions", terrain_list)) {
+          ROS_ASSERT(terrain_list.getType() == XmlRpc::XmlRpcValue::TypeArray);
+          if (terrain_list.size() == 0) {
+              ROS_WARN("NavfnROS: terrain_definitions list is empty.");
+          }
+
+          for (int32_t i = 0; i < terrain_list.size(); ++i) {
+              ROS_ASSERT(terrain_list[i].getType() == XmlRpc::XmlRpcValue::TypeStruct);
+              TerrainInfo current_terrain;
+              bool success = true;
+
+              if (terrain_list[i].hasMember("raw_map_value") && terrain_list[i]["raw_map_value"].getType() == XmlRpc::XmlRpcValue::TypeInt) {
+                  current_terrain.raw_map_value = static_cast<unsigned char>(static_cast<int>(terrain_list[i]["raw_map_value"]));
+              } else {
+                  ROS_ERROR("NavfnROS: Terrain definition %d missing 'raw_map_value' or it's not an Int.", i);
+                  success = false;
+              }
+
+              if (terrain_list[i].hasMember("name") && terrain_list[i]["name"].getType() == XmlRpc::XmlRpcValue::TypeString) {
+                  current_terrain.name = static_cast<std::string>(terrain_list[i]["name"]);
+              } else {
+                  ROS_ERROR("NavfnROS: Terrain definition %d missing 'name' or it's not a String.", i);
+                  success = false;
+              }
+
+              if (terrain_list[i].hasMember("energy_usage_factor") && terrain_list[i]["energy_usage_factor"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                  current_terrain.energy_usage_factor = static_cast<double>(terrain_list[i]["energy_usage_factor"]);
+              } else {
+                  ROS_ERROR("NavfnROS: Terrain definition %d missing 'energy_usage_factor' or it's not a Double.", i);
+                  success = false;
+              }
+
+              if(success){
+                  terrain_definitions_.push_back(current_terrain);
+                  ROS_INFO("NavfnROS: Loaded terrain: %s, raw_value: %d, energy_factor: %.2f",
+                          current_terrain.name.c_str(), current_terrain.raw_map_value, current_terrain.energy_usage_factor);
+              }
+          }
+      } else {
+          ROS_WARN("NavfnROS: Param 'terrain_definitions' not found. No terrain-specific costs will be applied.");
+      }
+  }
+  // END ADDED */
+
+  // MODIFIED
+
+  void NavfnROS::loadEnergyParams(ros::NodeHandle& private_nh) {
+    private_nh.param("critical_battery_threshold", critical_battery_threshold_, 20.0);
+    // Ensure you are using the renamed parameter for ROS cost penalty
+    private_nh.param("base_ros_cost_penalty_unit", base_energy_penalty_per_unit_, 10.0); 
+    private_nh.param("critical_battery_penalty_multiplier", critical_battery_penalty_multiplier_, 2.0);
+
+    ROS_INFO("NavfnROS Energy Params: CriticalBattery=%.1f%%, BaseROSCostPenaltyUnit=%.1f, BoostMultiplier=%.1f",
+             critical_battery_threshold_, base_energy_penalty_per_unit_, critical_battery_penalty_multiplier_);
+
+    // Clear previous definitions if any (e.g., on re-initialize, though not typical for planners)
+    zone_terrain_definitions_.clear(); 
+
+    XmlRpc::XmlRpcValue zone_list_param; // Changed variable name for clarity
+    if (private_nh.getParam("zone_terrain_definitions", zone_list_param)) { // Changed param name
+        ROS_ASSERT(zone_list_param.getType() == XmlRpc::XmlRpcValue::TypeArray);
+        if (zone_list_param.size() == 0) {
+             ROS_WARN("NavfnROS: zone_terrain_definitions list is empty.");
+        }
+
+        for (int32_t i = 0; i < zone_list_param.size(); ++i) {
+            ROS_ASSERT(zone_list_param[i].getType() == XmlRpc::XmlRpcValue::TypeStruct);
+            ZoneTerrainInfo current_zone; // Use new struct
+            bool success = true;
+
+            // Name (optional but good for debugging)
+            if (zone_list_param[i].hasMember("name") && zone_list_param[i]["name"].getType() == XmlRpc::XmlRpcValue::TypeString) {
+                current_zone.name = static_cast<std::string>(zone_list_param[i]["name"]);
+            } else {
+                current_zone.name = "zone_" + std::to_string(i); // Default name
+            }
+
+            // min_mx
+            if (zone_list_param[i].hasMember("min_mx") && zone_list_param[i]["min_mx"].getType() == XmlRpc::XmlRpcValue::TypeInt) {
+                current_zone.min_mx = static_cast<unsigned int>(static_cast<int>(zone_list_param[i]["min_mx"]));
+            } else {
+                ROS_ERROR("NavfnROS: Zone definition %d for '%s' missing 'min_mx' or it's not an Int.", i, current_zone.name.c_str());
+                success = false;
+            }
+            // max_mx
+            if (zone_list_param[i].hasMember("max_mx") && zone_list_param[i]["max_mx"].getType() == XmlRpc::XmlRpcValue::TypeInt) {
+                current_zone.max_mx = static_cast<unsigned int>(static_cast<int>(zone_list_param[i]["max_mx"]));
+            } else {
+                ROS_ERROR("NavfnROS: Zone definition %d for '%s' missing 'max_mx' or it's not an Int.", i, current_zone.name.c_str());
+                success = false;
+            }
+            // min_my
+            if (zone_list_param[i].hasMember("min_my") && zone_list_param[i]["min_my"].getType() == XmlRpc::XmlRpcValue::TypeInt) {
+                current_zone.min_my = static_cast<unsigned int>(static_cast<int>(zone_list_param[i]["min_my"]));
+            } else {
+                ROS_ERROR("NavfnROS: Zone definition %d for '%s' missing 'min_my' or it's not an Int.", i, current_zone.name.c_str());
+                success = false;
+            }
+            // max_my
+            if (zone_list_param[i].hasMember("max_my") && zone_list_param[i]["max_my"].getType() == XmlRpc::XmlRpcValue::TypeInt) {
+                current_zone.max_my = static_cast<unsigned int>(static_cast<int>(zone_list_param[i]["max_my"]));
+            } else {
+                ROS_ERROR("NavfnROS: Zone definition %d for '%s' missing 'max_my' or it's not an Int.", i, current_zone.name.c_str());
+                success = false;
+            }
+
+            // energy_usage_factor
+            if (zone_list_param[i].hasMember("energy_usage_factor") && zone_list_param[i]["energy_usage_factor"].getType() == XmlRpc::XmlRpcValue::TypeDouble) {
+                current_zone.energy_usage_factor = static_cast<double>(zone_list_param[i]["energy_usage_factor"]);
+            } else {
+                ROS_ERROR("NavfnROS: Zone definition %d for '%s' missing 'energy_usage_factor' or it's not a Double.", i, current_zone.name.c_str());
+                success = false;
+            }
+
+            if(success){
+                zone_terrain_definitions_.push_back(current_zone);
+                ROS_INFO("NavfnROS: Loaded terrain zone: %s, min_mx: %u, max_mx: %u, min_my: %u, max_my: %u, energy_factor: %.2f",
+                         current_zone.name.c_str(), current_zone.min_mx, current_zone.max_mx, current_zone.min_my, current_zone.max_my, current_zone.energy_usage_factor);
+            }
+        }
+    } else {
+        ROS_WARN("NavfnROS: Param 'zone_terrain_definitions' not found. No zone-specific energy costs will be applied.");
+    }
+  }
+
+  // END MODIFIED
+
+  // ADDED: Helper to calculate base navfn cost for a cell
+  unsigned char NavfnROS::calculateBaseNavfnCost(unsigned char ros_cost, bool allow_unknown_local) {
+      // This logic mirrors parts of NavFn::setCostmap for a single cell
+      if (ros_cost >= costmap_2d::INSCRIBED_INFLATED_OBSTACLE) { // 253 and 254 (LETHAL)
+          return COST_OBS; // NavFn's internal obstacle cost (254)
+      } else if (ros_cost == costmap_2d::NO_INFORMATION && allow_unknown_local) { // 255
+          // In NavFn::setCostmap, this translates to:
+          // v = COST_UNKNOWN_ROS (255) -> if allow_unknown, v = COST_OBS-1
+          // Since ros_cost is already COST_UNKNOWN_ROS (255 from costmap_2d::NO_INFORMATION)
+          return COST_OBS - 1;
+      } else if (ros_cost == costmap_2d::NO_INFORMATION && !allow_unknown_local) {
+          return COST_OBS; // Treat unknown as obstacle if not allowed
+      }
+
+      // Scale other costs (0 to 252)
+      // NavFn uses: v = COST_NEUTRAL + COST_FACTOR * v;
+      // where v is the incoming ros_cost. COST_NEUTRAL=50, COST_FACTOR=0.8
+      unsigned char cost = COST_NEUTRAL + static_cast<unsigned char>(COST_FACTOR * ros_cost);
+      if (cost >= COST_OBS) {
+          cost = COST_OBS - 1;
+      }
+      return cost;
+  }
+  // END ADDED
+
 };

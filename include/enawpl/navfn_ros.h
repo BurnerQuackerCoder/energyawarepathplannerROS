@@ -1,41 +1,8 @@
-/*********************************************************************
-*
-* Software License Agreement (BSD License)
-*
-*  Copyright (c) 2008, Willow Garage, Inc.
-*  All rights reserved.
-*
-*  Redistribution and use in source and binary forms, with or without
-*  modification, are permitted provided that the following conditions
-*  are met:
-*
-*   * Redistributions of source code must retain the above copyright
-*     notice, this list of conditions and the following disclaimer.
-*   * Redistributions in binary form must reproduce the above
-*     copyright notice, this list of conditions and the following
-*     disclaimer in the documentation and/or other materials provided
-*     with the distribution.
-*   * Neither the name of the Willow Garage nor the names of its
-*     contributors may be used to endorse or promote products derived
-*     from this software without specific prior written permission.
-*
-*  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-*  "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-*  LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
-*  FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
-*  COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
-*  INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
-*  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-*  LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
-*  CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
-*  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
-*  ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
-*  POSSIBILITY OF SUCH DAMAGE.
-*
-* Author: Eitan Marder-Eppstein
-*********************************************************************/
 #ifndef NAVFN_NAVFN_ROS_H_
 #define NAVFN_NAVFN_ROS_H_
+
+#include <std_msgs/Float32.h> // For battery subscriber
+#include <XmlRpcException.h>  // For parsing XmlRpcValue
 
 #include <ros/ros.h>
 #include <enawpl/navfn.h>
@@ -53,6 +20,16 @@ namespace enawpl {
    * @class NavfnROS
    * @brief Provides a ROS wrapper for the navfn planner which runs a fast, interpolated navigation function on a costmap.
    */
+
+  // ADDED/MODIFIED: Struct to hold zone-based terrain definition
+  struct ZoneTerrainInfo {
+    std::string name;
+    unsigned int min_mx, max_mx;
+    unsigned int min_my, max_my;
+    double energy_usage_factor;
+};
+// END ADDED/MODIFIED
+
   class NavfnROS : public nav_core::BaseGlobalPlanner {
     public:
       /**
@@ -162,6 +139,18 @@ namespace enawpl {
       /**
        * @brief Store a copy of the current costmap in \a costmap.  Called by makePlan.
        */
+
+      // ADDED: Energy-aware parameters and state
+      ros::Subscriber battery_sub_;
+      float current_battery_percent_;
+      bool battery_data_received_;
+
+      double critical_battery_threshold_;         // e.g., 30.0 for 30%
+      double base_energy_penalty_per_unit_;     // A base cost unit for energy, e.g., 10.0
+      double critical_battery_penalty_multiplier_; // e.g., 2.0, to amplify penalty when battery is low
+      // MODIFIED
+      std::vector<ZoneTerrainInfo> zone_terrain_definitions_;
+      // END ADDED
       costmap_2d::Costmap2D* costmap_;
       boost::shared_ptr<NavFn> planner_;
       ros::Publisher plan_pub_;
@@ -182,6 +171,12 @@ namespace enawpl {
       boost::mutex mutex_;
       ros::ServiceServer make_plan_srv_;
       std::string global_frame_;
+
+      // ADDED: Helper functions for energy-aware planning
+      void batteryCallback(const std_msgs::Float32::ConstPtr& msg);
+      void loadEnergyParams(ros::NodeHandle& private_nh);
+      unsigned char calculateBaseNavfnCost(unsigned char ros_cost, bool allow_unknown);
+      // END ADDED
   };
 };
 

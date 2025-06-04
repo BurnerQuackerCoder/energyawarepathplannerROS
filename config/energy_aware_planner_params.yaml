@@ -1,0 +1,13 @@
+NavfnROS: # Or your specific planner instance name
+  critical_battery_threshold: 30.0
+  base_ros_cost_penalty_unit: 15.0 # Renamed from base_energy_penalty_per_cell_ for clarity
+  critical_battery_penalty_multiplier: 4.5
+
+  zone_terrain_definitions: # New parameter name
+    - name: "carpet_main_hall"
+      min_mx: 1971
+      max_mx: 2026
+      min_my: 2001
+      max_my: 2014
+      energy_usage_factor: 2.8 # Carpet is 80% more energy intensive
+    # Add more zones as needed

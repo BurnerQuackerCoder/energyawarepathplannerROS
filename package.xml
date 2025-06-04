@@ -38,6 +38,6 @@
     <test_depend>rosunit</test_depend>
 
     <export>
-        <nav_core plugin="${prefix}/bgp_plugin.xml" />
+        <nav_core plugin="${prefix}/bgp_plugin_jp.xml" />
     </export>
 </package>

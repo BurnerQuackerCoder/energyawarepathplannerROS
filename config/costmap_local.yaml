@@ -7,6 +7,6 @@ local_costmap:
     raytrace_range: 2.5
     static_map: false
     
-    width: 2.5
-    height: 2.5
-    resolution: 0.02
+    width: 8.0
+    height: 8.0
+    resolution: 0.05
