@@ -1,6 +1,6 @@
-NavfnROS: # Or your specific planner instance name
+NavfnROS: 
   critical_battery_threshold: 30.0
-  base_ros_cost_penalty_unit: 15.0 # Renamed from base_energy_penalty_per_cell_ for clarity
+  base_ros_cost_penalty_unit: 15.0 
   critical_battery_penalty_multiplier: 4.5
 
   zone_terrain_definitions: # New parameter name
@@ -9,5 +9,5 @@ NavfnROS: # Or your specific planner instance name
       max_mx: 2026
       min_my: 2001
       max_my: 2014
-      energy_usage_factor: 2.8 # Carpet is 80% more energy intensive
+      energy_usage_factor: 3.8 # Carpet is 80% more energy intensive
     # Add more zones as needed

@@ -1,5 +1,6 @@
 # Reff: http://wiki.ros.org/costmap_2d
 global_costmap:
+    global_frame: map
     update_frequency: 2.0
     publish_frequency: 1.0
 
