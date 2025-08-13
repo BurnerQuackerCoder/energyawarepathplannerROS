@@ -7,9 +7,13 @@ def battery_publisher():
     pub = rospy.Publisher('/battery', Float32, queue_size=10)
     rate = rospy.Rate(1)  # 1 Hz
     battery_level = 25.0  # Hardcoded for demo, matches planner
+    log_once = True
+
     while not rospy.is_shutdown():
         pub.publish(battery_level)
-        rospy.loginfo("Published battery level: %f", battery_level)
+        if log_once:
+            rospy.loginfo("Published battery level: %f", battery_level)
+            log_once = False
         rate.sleep()
 
 if __name__ == '__main__':

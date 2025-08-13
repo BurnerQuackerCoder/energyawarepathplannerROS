@@ -213,6 +213,8 @@ namespace enawpl {
       return false;
     }
 
+    //ROS_INFO("ROBOT_START_CELL_DEBUG: Current plan request starts at (mx: %u, my: %u)", mx, my);
+
     //clear the starting cell within the costmap because we know it can't be an obstacle
     clearRobotCell(start, mx, my);
 
@@ -222,9 +224,6 @@ namespace enawpl {
     unsigned int map_size = size_x * size_y;
     ROS_INFO_THROTTLE(1.0, "NavfnROS: size_x (%u) size_y (%u)",
                       size_x, size_y);
-
-
-
     unsigned char* original_ros_costmap_chars = costmap_->getCharMap();
     unsigned char* energy_aware_cost_array = new unsigned char[map_size];
 
@@ -249,13 +248,6 @@ namespace enawpl {
 
     ROS_INFO_ONCE("NavfnROS: Debug - Checking for cells with specific cost ranges. This might be verbose.");
 
-    // Define expected raw cost ranges for terrains (replace with your educated guesses)
-    //const unsigned char expected_smooth_val_approx = 10; // The value you AIMED for or suspect for smooth
-    // const unsigned char expected_carpet_val_approx = 50; // The value you AIMED for or suspect for carpet
-    // const unsigned char expected_mount_val_approx = 150;
-    // const unsigned char expected_sea_approx = 170;
-    // const unsigned char expected_sand_approx = 250;
-    // const unsigned char value_tolerance = 7; // Print if value is within +/- this tolerance
 
     for (unsigned int i = 0; i < map_size; ++i) {
         unsigned char ros_cell_cost = original_ros_costmap_chars[i];
@@ -263,33 +255,6 @@ namespace enawpl {
         unsigned int current_my = i / size_x;
         //unsigned char base_navfn_cell_cost = calculateBaseNavfnCost(ros_cell_cost, allow_unknown_);
         unsigned char final_ros_cost_for_navfn = ros_cell_cost; // Start with the original
-
-        // ADDED: ROS_INFO if cell cost is within an expected range
-        /*if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_smooth_val_approx)) <= value_tolerance) {
-            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'smooth' value of %d)", 
-                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_smooth_val_approx);
-        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_carpet_val_approx)) <= value_tolerance) {
-            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'carpet' value of %d)", 
-                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_carpet_val_approx);
-        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_mount_val_approx)) <= value_tolerance) {
-            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'mount' value of %d)", 
-                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_mount_val_approx);
-        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_sea_approx)) <= value_tolerance) {
-            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'sea' value of %d)", 
-                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_sea_approx);
-        } else if (std::abs(static_cast<int>(ros_cell_cost) - static_cast<int>(expected_sand_approx)) <= value_tolerance) {
-            ROS_INFO_THROTTLE(1.0, "NavfnROS_Debug: Cell_MX=%u, Cell_MY=%u, OriginalROSCost=%d (near expected 'sand' value of %d)", 
-                     current_mx, current_my, static_cast<int>(ros_cell_cost), expected_sand_approx);
-        }
-        // END ADDED */
-
-        /*double terrain_energy_factor_for_cell = 1.0; // Default for standard free space or unknown terrain
-        for (const auto& terrain_def : terrain_definitions_) {
-            if (ros_cell_cost == terrain_def.raw_map_value) {
-                terrain_energy_factor_for_cell = terrain_def.energy_usage_factor;
-                break; 
-            }
-        }*/
 
         // MODIFIED: Determine terrain_energy_factor_for_cell based on zones
         double terrain_energy_factor_for_cell = 1.0; // Default factor for cells not in any defined zone
@@ -309,11 +274,11 @@ namespace enawpl {
         double applied_additional_ros_penalty = 0.0; // To log the actual penalty
 
         if (ros_cell_cost < costmap_2d::INSCRIBED_INFLATED_OBSTACLE) { // e.g. < 253
-            double additional_ros_penalty = (terrain_energy_factor_for_cell - 1.0) * base_energy_penalty_per_unit_ * current_penalty_multiplier;
+             applied_additional_ros_penalty = (terrain_energy_factor_for_cell - 1.0) * base_energy_penalty_per_unit_ * current_penalty_multiplier;
 
-            if (additional_ros_penalty < 0.0) additional_ros_penalty = 0.0;
+            if (applied_additional_ros_penalty < 0.0) applied_additional_ros_penalty = 0.0;
 
-            int potentially_modified_ros_cost = static_cast<int>(ros_cell_cost) + static_cast<int>(additional_ros_penalty);
+            int potentially_modified_ros_cost = static_cast<int>(ros_cell_cost) + static_cast<int>(applied_additional_ros_penalty);
 
             // Cap the modified cost to ensure it doesn't become an obstacle unintentionally
             // It should not exceed the value just below inscribed obstacles.
@@ -322,35 +287,10 @@ namespace enawpl {
             } else {
                 final_ros_cost_for_navfn = static_cast<unsigned char>(potentially_modified_ros_cost);
             }
-      }
-    // else, lethal, inscribed, or unknown costs are passed as is to NavFn::setCostmap
+
+          }
 
     energy_aware_cost_array[i] = final_ros_cost_for_navfn;
-
-    // Specific logging for your "carpet_main_hall" zone
-    // Replace with your actual zone coordinates for carpet_main_hall if needed for precision
-    // if (current_mx >= 1971 && current_mx <= 2026 && current_my >= 2001 && current_my <= 2014) {
-    //     if (current_zone_name == "carpet_main_hall") { // Double check it was matched as carpet_main_hall
-    //     ROS_INFO("CarpetCellDebug: MX=%u, MY=%u | OrigCost=%d, ZoneName=%s, TerrainFactor=%.2f, AddPenalty=%.1f, FinalROSCostNavFnWillProcess=%d",
-    //              current_mx, current_my, 
-    //              static_cast<int>(ros_cell_cost),
-    //              current_zone_name.c_str(),
-    //              terrain_energy_factor_for_cell,
-    //              applied_additional_ros_penalty,
-    //              static_cast<int>(final_ros_cost_for_navfn));
-    //  } else {
-    //     // This would indicate a cell within carpet_main_hall's coordinates was NOT matched to it by the zone logic
-    //     ROS_WARN("CarpetCoordMismatch: MX=%u, MY=%u | OrigCost=%d, MatchedZone=%s (Expected Carpet!), TerrainFactor=%.2f, AddPenalty=%.1f, FinalROSCostNavFnWillProcess=%d",
-    //              current_mx, current_my,
-    //              static_cast<int>(ros_cell_cost),
-    //              current_zone_name.c_str(),
-    //              terrain_energy_factor_for_cell,
-    //              applied_additional_ros_penalty,
-    //              static_cast<int>(final_ros_cost_for_navfn));
-    //  }
-    // }
-// } // End of for loop
-
     }
 
     planner_->setNavArr(size_x, size_y);

@@ -1,13 +1,13 @@
 NavfnROS: 
   critical_battery_threshold: 30.0
-  base_ros_cost_penalty_unit: 15.0 
-  critical_battery_penalty_multiplier: 4.5
+  base_ros_cost_penalty_unit: 50.0 
+  critical_battery_penalty_multiplier: 20.0
 
   zone_terrain_definitions: # New parameter name
     - name: "carpet_main_hall"
-      min_mx: 1971
-      max_mx: 2026
-      min_my: 2001
-      max_my: 2014
-      energy_usage_factor: 3.8 # Carpet is 80% more energy intensive
+      min_mx: 70
+      max_mx: 100
+      min_my: 70
+      max_my: 100
+      energy_usage_factor: 8.8 # Carpet is 80% more energy intensive
     # Add more zones as needed

@@ -4,9 +4,9 @@ import rospy
 from geometry_msgs.msg import PointStamped
 
 # Fill these from your map.yaml
-MAP_ORIGIN_X = -100.0  # origin[0]
-MAP_ORIGIN_Y = -100.0  # origin[1]
-MAP_RESOLUTION = 0.05  # resolution
+MAP_ORIGIN_X = -5.0  # origin[0]
+MAP_ORIGIN_Y = -5.0  # origin[1]
+MAP_RESOLUTION = 0.050000  # resolution
 
 def point_callback(msg):
     world_x = msg.point.x

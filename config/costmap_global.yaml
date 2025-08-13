@@ -8,5 +8,5 @@ global_costmap:
     raytrace_range: 5.0
     static_map: true
 
-    width: 15.0
-    height: 15.0
+    width: 8.0
+    height: 8.0

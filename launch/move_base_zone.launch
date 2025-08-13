@@ -1,0 +1,16 @@
+<launch>
+
+   <arg name="use_gazebo" default="true" /> <arg name="map_name" default="maze.yaml"/>
+
+   <include file="$(find enawpl)/launch/localization.launch">
+      <arg name="use_gazebo" value="$(arg use_gazebo)" />
+      <arg name="map_name" default="$(arg map_name)"/>
+   </include>
+
+   <node pkg="enawpl" type="zone_visualizer.py" name="zone_visualizer" output="screen">
+      <param name="yaml_path" value="$(find enawpl)/config/energy_aware_planner_params.yaml" />
+   </node>
+   
+   <node pkg="rviz" type="rviz" name="rviz" args="-d $(find tutorial_pkg)/rviz/move_base.rviz"/>
+
+</launch>
