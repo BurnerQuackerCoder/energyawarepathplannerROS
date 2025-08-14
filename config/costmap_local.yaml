@@ -11,3 +11,21 @@ local_costmap:
     width: 1.0
     height: 1.0
     resolution: 0.05
+
+# Reff: http://wiki.ros.org/costmap_2d
+# local_costmap:
+#     global_frame: odom
+#     update_frequency: 5.0
+#     publish_frequency: 2.0
+
+#     static_map: false
+#     rolling_window: true
+#     width: 1.0
+#     height: 1.0
+#     resolution: 0.05
+
+#     # Add the plugins for the local costmap
+#     plugins:
+#     - {name: obstacle_layer,      type: "costmap_2d::ObstacleLayer"}
+#     - {name: battery_aware_layer, type: "battery_aware_costmap_layer/BatteryAwareLayer"}
+#     - {name: inflation_layer,     type: "costmap_2d::InflationLayer"}

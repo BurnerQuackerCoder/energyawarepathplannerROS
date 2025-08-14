@@ -10,3 +10,18 @@ global_costmap:
 
     width: 8.0
     height: 8.0
+
+# Reff: http://wiki.ros.org/costmap_2d
+# global_costmap:
+#   global_frame: map
+#   update_frequency: 2.0
+#   publish_frequency: 1.0
+
+#   static_map: true
+
+#   # Add the full stack of plugins, including our new one
+#   plugins:
+#     - {name: static_layer,        type: "costmap_2d::StaticLayer"}
+#     - {name: obstacle_layer,      type: "costmap_2d::ObstacleLayer"}
+#     - {name: battery_aware_layer, type: "battery_aware_costmap_layer/BatteryAwareLayer"}
+#     - {name: inflation_layer,     type: "costmap_2d::InflationLayer"}
