@@ -218,6 +218,7 @@ namespace enawpl {
     //clear the starting cell within the costmap because we know it can't be an obstacle
     clearRobotCell(start, mx, my);
 
+
     // JP_MODIFIED: Prepare energy-aware costmap
     unsigned int size_x = costmap_->getSizeInCellsX();
     unsigned int size_y = costmap_->getSizeInCellsY();
@@ -301,10 +302,10 @@ namespace enawpl {
     delete[] energy_aware_cost_array;
     energy_aware_cost_array = nullptr;
     // END ADDED
+    
 
 
     //make sure to resize the underlying array that Navfn uses
-    // JP Below commented
     //planner_->setNavArr(costmap_->getSizeInCellsX(), costmap_->getSizeInCellsY());
     //planner_->setCostmap(costmap_->getCharMap(), true, allow_unknown_);
 

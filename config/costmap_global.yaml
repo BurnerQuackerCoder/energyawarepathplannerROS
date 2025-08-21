@@ -6,7 +6,6 @@ global_costmap:
 
     obstacle_range: 5.0
     raytrace_range: 5.0
-    static_map: true
 
     width: 8.0
     height: 8.0

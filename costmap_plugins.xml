@@ -1,5 +1,0 @@
-<library path="lib/libenawpl_layers">
-  <class name="enawpl/EnergyZoneLayer" type="enawpl::EnergyZoneLayer" base_class_type="costmap_2d::Layer">
-    <description>A plugin that adds a high-cost area to the costmap based on predefined zones and battery level.</description>
-  </class>
-</library>

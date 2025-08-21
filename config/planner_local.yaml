@@ -14,12 +14,12 @@ TrajectoryPlannerROS:
     
     holonomic_robot: false
 
-    xy_goal_tolerance: 0.1
+    xy_goal_tolerance: 0.15
     yaw_goal_tolerance: 0.2
 
     meter_scoring: true
-    path_distance_bias: 4.0
+    path_distance_bias: 1.5
     goal_distance_bias: 0.8
-    occdist_scale:  0.01
+    occdist_scale:  0.02
 
-    sim_time: 2.0
+    sim_time: 1.5

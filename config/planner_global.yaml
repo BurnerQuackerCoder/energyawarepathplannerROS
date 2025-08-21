@@ -1,4 +1,4 @@
 # Reff: http://wiki.ros.org/navfn
-base_global_planner : enawpl/NavfnROS
+#base_global_planner : enawpl/NavfnROS
 
-#base_global_planner : navfn/NavfnROS
+base_global_planner : navfn/NavfnROS

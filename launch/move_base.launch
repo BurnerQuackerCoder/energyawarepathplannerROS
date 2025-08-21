@@ -11,7 +11,7 @@
 
    <!-- Path planning -->
    <node pkg="move_base" type="move_base" respawn="false" name="move_base" output="screen">
-      <param name="base_global_planner" value="enawpl/NavfnROS" />
+      <param name="base_global_planner" value="navfn/NavfnROS" />
       <rosparam file="$(find enawpl)/config/move_base.yaml" command="load" />
       <rosparam file="$(find enawpl)/config/costmap_common.yaml" command="load" ns="global_costmap" /> 
       <rosparam file="$(find enawpl)/config/costmap_common.yaml" command="load" ns="local_costmap" />

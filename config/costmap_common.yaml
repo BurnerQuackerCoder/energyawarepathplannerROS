@@ -1,43 +1,12 @@
 # Reff: http://wiki.ros.org/costmap_2d
+global_frame: map
 robot_base_frame: base_link
 footprint: [[0.14, 0.14], [0.14, -0.14], [-0.14, -0.14], [-0.14, 0.14]]
 rolling_window: true
 
+inflation_radius: 0.5
+cost_scaling_factor: 4.0
 
-# --- Our NEW Battery Aware Layer Configuration ---
-battery_aware_layer:
-  enabled: true
-  critical_battery_threshold: 0.30 # Battery percentage (e.g., 30%)
-  high_friction_cost: 180          # The cost to paint inside the zone (0-252)
-  visualization_cost: 20 
-  zones:
-    - name: "carpet_main_hall"
-      min_mx: 70
-      max_mx: 100
-      min_my: 70
-      max_my: 200
-
-# Configuration for our new custom layer
-# energy_zone_layer:
-#   enabled: true
-#   critical_battery_threshold: 30.0
-#   zone_cost_value: 200 # The cost to paint inside the zone (0-252)
-#   zones:
-#     - name: "carpet_main_hall"
-#       min_mx: 70
-#       max_mx: 100
-#       min_my: 70
-#       max_my: 100
-
-# inflation_radius: 0.1
-# cost_scaling_factor: 10.0
-
-# --- Layer-specific configurations ---
 track_unknown_space: true
 observation_sources: scan
 scan: {sensor_frame: laser, data_type: LaserScan, topic: scan, marking: true, clearing: true}
-
-# Inflation Layer
-inflation_layer:
-    inflation_radius: 0.1
-    cost_scaling_factor: 10.0
